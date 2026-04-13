@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -138,16 +139,123 @@ def init():
     typer.echo("\nLore is ready! Make sure 'lore start' is running.")
 
 
+import yaml
+from lore_core.store import (
+    find_lore_dir,
+    get_git_repo,
+    get_commit_info,
+    get_changed_files,
+    load_sessions,
+)
+from lore_core.distill import extract_symbols_from_diff, distill_sessions_to_decision
+from lore_core.models import DistillContext
+
 @app.command()
 def commit():
     """Distill temp/ reasoning into staging/ decision records (.yaml)."""
-    typer.echo("lore commit — not yet implemented")
+    cwd = Path.cwd()
+    lore_dir = find_lore_dir(str(cwd))
+    if not lore_dir:
+        typer.echo("Error: .lore directory not found. Run 'lore init' first.")
+        sys.exit(1)
+
+    repo = get_git_repo(str(cwd))
+    if not repo:
+        typer.echo("Error: Git repository not found.")
+        sys.exit(1)
+
+    try:
+        commit_hash, diff = get_commit_info(repo)
+    except Exception as e:
+        typer.echo(f"Error getting commit info: {e}")
+        sys.exit(1)
+
+    symbols = extract_symbols_from_diff(diff)
+    files = get_changed_files(diff)
+    
+    if not files:
+        typer.echo("No files changed in the latest commit.")
+        return
+
+    sessions = load_sessions(lore_dir, files)
+    if not sessions:
+        typer.echo("No relevant session data found in temp/ for this commit.")
+        return
+
+    # In a real implementation, we would pass a real LLM client
+    context = DistillContext(
+        commit_hash=commit_hash,
+        diff=diff,
+        symbols=symbols,
+        files=files,
+        sessions=sessions,
+    )
+
+    typer.echo(f"Distilling reasoning for commit {commit_hash[:7]}...")
+    decision = distill_sessions_to_decision(context, llm_client=None)
+
+    # Save to staging/
+    branch_name = repo.active_branch.name
+    staging_dir = lore_dir / "staging" / branch_name
+    staging_dir.mkdir(parents=True, exist_ok=True)
+    
+    output_path = staging_dir / f"{commit_hash}.yaml"
+    with open(output_path, "w") as f:
+        yaml.dump(decision.model_dump(), f)
+
+    typer.echo(f"Distilled decision record saved to: {output_path}")
+    
+    # Cleanup temp/ (for V1, we clear all matched sessions)
+    # Actually, we should only clear the sessions that were distilled.
+    for session in sessions:
+        session_path = lore_dir / "temp" / session.session_id
+        # We can either delete or move it. Let's delete it for now.
+        # But for safety, we might want to keep it until merge.
+        # For V1, the rule is "temp/ is cleared per commit".
+        import shutil
+        shutil.rmtree(session_path)
+        typer.echo(f"Cleared temp session: {session.session_id}")
 
 
 @app.command()
 def merge():
     """Promote staging/ reasoning into permanent decisions/ (.yaml)."""
-    typer.echo("lore merge — not yet implemented")
+    cwd = Path.cwd()
+    lore_dir = find_lore_dir(str(cwd))
+    if not lore_dir:
+        typer.echo("Error: .lore directory not found. Run 'lore init' first.")
+        sys.exit(1)
+
+    repo = get_git_repo(str(cwd))
+    if not repo:
+        typer.echo("Error: Git repository not found.")
+        sys.exit(1)
+
+    # For V1, we promote from the active branch's staging area
+    # In V2, we might want to be more specific about the source branch
+    branch_name = repo.active_branch.name
+    staging_dir = lore_dir / "staging" / branch_name
+    if not staging_dir.is_dir():
+        typer.echo(f"No staged decisions found for branch {branch_name}.")
+        return
+
+    decisions_dir = lore_dir / "decisions"
+    decisions_dir.mkdir(parents=True, exist_ok=True)
+
+    count = 0
+    for yaml_file in staging_dir.glob("*.yaml"):
+        target_path = decisions_dir / yaml_file.name
+        # Move the file
+        shutil.move(str(yaml_file), str(target_path))
+        typer.echo(f"Promoted: {yaml_file.name}")
+        count += 1
+
+    if count > 0:
+        typer.echo(f"Successfully promoted {count} decision records to permanent store.")
+        # Cleanup the empty branch staging directory
+        staging_dir.rmdir()
+    else:
+        typer.echo("No decisions were ready for promotion.")
 
 
 @app.command()
