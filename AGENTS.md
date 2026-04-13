@@ -78,7 +78,7 @@ ruff format .                 # formatting
 Follow these principles strictly for all contributions:
 
 - **Clean Code**: Prioritize readability, meaningful names, and small, single-purpose functions.
-- **TDD (Test-Driven Development)**: Write tests *before* implementation. Ensure 100% coverage for core logic.
+- **TDD (Test-Driven Development)**: Write tests *before* implementation. Aim for >80% coverage for core logic.
 - **Functional Programming**: Prefer immutability, pure functions, and high-order functions where pragmatic. Avoid side effects in core logic.
 - **Pragmatic Programming**: Focus on building what is necessary, avoid over-engineering, and ensure the code is robust and easy to change.
 - **Immutability**: Treat data as immutable whenever possible. Use Pydantic models for structured data.
