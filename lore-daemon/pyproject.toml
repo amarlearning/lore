@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lore-daemon"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.100",
+    "uvicorn[standard]>=0.23",
+    "click>=8.0",
+    "lore-core",
+]
+
+[project.scripts]
+lore-daemon = "lore_daemon.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lore_daemon"]

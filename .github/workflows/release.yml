@@ -1,0 +1,53 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*' # Push events to matching v*, i.e. v1.0, v20.15.10
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyinstaller
+        pip install ./lore-core
+        pip install ./lore-daemon
+        pip install ./lore-cli
+        
+    - name: Build with PyInstaller (lore CLI)
+      shell: bash
+      run: |
+        if [ "${{ matrix.os }}" = "windows-latest" ]; then
+          pyinstaller --onefile --name lore-${{ matrix.os }} ./lore-cli/src/lore_cli/main.py
+        else
+          pyinstaller --onefile --name lore-${{ matrix.os }} ./lore-cli/src/lore_cli/main.py
+        fi
+        
+    - name: Build with PyInstaller (lore-daemon)
+      shell: bash
+      run: |
+        pyinstaller --onefile --name lore-daemon-${{ matrix.os }} ./lore-daemon/src/lore_daemon/__main__.py
+        
+    - name: Release
+      uses: softprops/action-gh-release@v2
+      if: startsWith(github.ref, 'refs/tags/')
+      with:
+        files: |
+          dist/lore-${{ matrix.os }}*
+          dist/lore-daemon-${{ matrix.os }}*
+
