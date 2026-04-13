@@ -66,9 +66,9 @@ pip install -e ".[dev]"
 pytest                        # run all tests
 pytest tests/unit/            # unit tests only
 pytest tests/integration/     # integration tests (require git)
-mypy src/                     # type checking
-ruff check src/               # linting
-ruff format src/              # formatting
+mypy lore-core/src lore-cli/src lore-daemon/src --ignore-missing-imports # type checking
+ruff check .                  # linting
+ruff format .                 # formatting
 ```
 
 ---

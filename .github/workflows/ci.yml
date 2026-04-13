@@ -25,10 +25,12 @@ jobs:
         pip install -e ./lore-core
         pip install -e ./lore-daemon
         pip install -e ./lore-cli
-        pip install pytest ruff mypy
+        pip install pytest ruff mypy types-PyYAML
     - name: Lint with ruff
       run: ruff check .
     - name: Type check with mypy
-      run: mypy src/ --ignore-missing-imports
+      run: mypy lore-core/src lore-cli/src lore-daemon/src --ignore-missing-imports
     - name: Run tests
-      run: pytest
+      run: |
+        export PYTHONPATH=$PYTHONPATH:$(pwd)/lore-core/src:$(pwd)/lore-cli:$(pwd)/lore-daemon
+        pytest
