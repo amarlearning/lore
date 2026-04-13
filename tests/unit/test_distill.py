@@ -1,4 +1,3 @@
-import pytest
 from lore_core.distill import extract_symbols_from_diff
 
 def test_extract_python_function_from_diff():

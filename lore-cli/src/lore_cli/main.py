@@ -5,9 +5,20 @@ import stat
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any, Dict, List, cast
 
 import typer
-from lore_core.store import init_lore_dir
+import yaml
+from lore_core.distill import distill_sessions_to_decision, extract_symbols_from_diff
+from lore_core.models import DistillContext
+from lore_core.store import (
+    find_lore_dir,
+    get_changed_files,
+    get_commit_info,
+    get_git_repo,
+    init_lore_dir,
+    load_sessions,
+)
 
 app = typer.Typer(help="lore — reasoning memory for AI-driven codebases")
 
@@ -74,7 +85,7 @@ def _install_claude_hooks(cwd: Path):
     claude_dir.mkdir(exist_ok=True)
 
     settings_path = claude_dir / "settings.json"
-    settings = {}
+    settings: Dict[str, Any] = {}
     if settings_path.exists():
         try:
             settings = json.loads(settings_path.read_text())
@@ -104,23 +115,30 @@ def _install_claude_hooks(cwd: Path):
     if "hooks" not in settings:
         settings["hooks"] = {}
 
-    for event, configs in lore_hooks.items():
-        if event not in settings["hooks"]:
-            settings["hooks"][event] = configs
+    hooks_settings = cast(Dict[str, Any], settings["hooks"])
+
+    for event, configs_any in lore_hooks.items():
+        configs = cast(List[Dict[str, Any]], configs_any)
+        if event not in hooks_settings:
+            hooks_settings[event] = configs
         else:
             # Avoid duplicate registrations
-            existing_urls = [
-                h.get("url")
-                for c in settings["hooks"][event]
-                for h in c.get("hooks", [])
-            ]
+            existing_urls = []
+            for config_item in cast(List[Dict[str, Any]], hooks_settings.get(event, [])):
+                hooks_list = config_item.get("hooks", [])
+                if isinstance(hooks_list, list):
+                    for hook_item in hooks_list:
+                        if isinstance(hook_item, dict):
+                            existing_urls.append(hook_item.get("url"))
+
             for config in configs:
+                config_hooks = cast(List[Dict[str, Any]], config.get("hooks", []))
                 new_hooks = [
-                    h for h in config["hooks"] if h.get("url") not in existing_urls
+                    h for h in config_hooks if h.get("url") not in existing_urls
                 ]
                 if new_hooks:
                     config["hooks"] = new_hooks
-                    settings["hooks"][event].append(config)
+                    hooks_settings[event].append(config)
 
     settings_path.write_text(json.dumps(settings, indent=2))
     typer.echo("Registered Claude Code hooks in .claude/settings.json")
@@ -138,17 +156,6 @@ def init():
 
     typer.echo("\nLore is ready! Make sure 'lore start' is running.")
 
-
-import yaml
-from lore_core.store import (
-    find_lore_dir,
-    get_git_repo,
-    get_commit_info,
-    get_changed_files,
-    load_sessions,
-)
-from lore_core.distill import extract_symbols_from_diff, distill_sessions_to_decision
-from lore_core.models import DistillContext
 
 @app.command()
 def commit():

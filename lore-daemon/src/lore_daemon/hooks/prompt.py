@@ -4,7 +4,6 @@ This is where we learn the session's working directory and register it.
 """
 
 import json
-from pathlib import Path
 
 from lore_core.store import find_lore_dir, session_temp_dir
 from lore_daemon.registry import registry

@@ -4,7 +4,6 @@ The .lore/ dir is found by walking up from a given path — same mechanism git u
 """
 
 import json
-import os
 from pathlib import Path
 from typing import List, Optional
 from git import Repo
@@ -68,7 +67,7 @@ def get_changed_files(diff: str) -> List[str]:
 
 def load_sessions(lore_dir: Path, changed_files: List[str]) -> List[SessionData]:
     """Load session data from temp directory for sessions that touched changed_files."""
-    sessions = []
+    sessions: List[SessionData] = []
     temp_dir = lore_dir / "temp"
     if not temp_dir.is_dir():
         return sessions
