@@ -25,7 +25,7 @@ jobs:
         pip install -e ./lore-core
         pip install -e ./lore-daemon
         pip install -e ./lore-cli
-        pip install pytest ruff mypy types-PyYAML
+        pip install pytest ruff mypy types-PyYAML httpx
     - name: Lint with ruff
       run: ruff check .
     - name: Type check with mypy
