@@ -24,7 +24,9 @@ def handle(payload: dict) -> dict:
     lore_dir = find_lore_dir(cwd) if cwd else None
 
     if lore_dir is None:
-        print(f"  [prompt] no .lore/ found for cwd={cwd!r} — session {session_id} not tracked")
+        print(
+            f"  [prompt] no .lore/ found for cwd={cwd!r} — session {session_id} not tracked"
+        )
         return {}
 
     temp_dir = session_temp_dir(lore_dir, session_id)

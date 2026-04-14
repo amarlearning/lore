@@ -4,10 +4,12 @@ from lore_daemon.server import app
 
 client = TestClient(app)
 
+
 def test_health():
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
 
 @patch("lore_daemon.hooks.prompt.handle")
 def test_hook_prompt(mock_handle):
@@ -18,6 +20,7 @@ def test_hook_prompt(mock_handle):
     assert response.json() == {"context": "injected"}
     mock_handle.assert_called_once_with(payload)
 
+
 @patch("lore_daemon.hooks.tool.handle")
 def test_hook_tool(mock_handle):
     payload = {"tool": "Write", "file": "app.py"}
@@ -25,6 +28,7 @@ def test_hook_tool(mock_handle):
     assert response.status_code == 200
     assert response.json() == {}
     mock_handle.assert_called_once_with(payload)
+
 
 @patch("lore_daemon.hooks.compact.handle")
 def test_hook_compact(mock_handle):
@@ -34,6 +38,7 @@ def test_hook_compact(mock_handle):
     assert response.json() == {}
     mock_handle.assert_called_once_with(payload)
 
+
 @patch("lore_daemon.hooks.stop.handle")
 def test_hook_stop(mock_handle):
     payload = {"status": "finished"}
@@ -41,6 +46,7 @@ def test_hook_stop(mock_handle):
     assert response.status_code == 200
     assert response.json() == {}
     mock_handle.assert_called_once_with(payload)
+
 
 @patch("lore_daemon.hooks.pre_tool.handle")
 def test_hook_pre_tool(mock_handle):

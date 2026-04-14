@@ -9,6 +9,7 @@ from typing import List, Optional
 from git import Repo
 from .models import SessionData, SessionEvent
 
+
 def find_lore_dir(cwd: str) -> Optional[Path]:
     """Search upwards from cwd to find a .lore directory."""
     current = Path(cwd).resolve()
@@ -50,7 +51,7 @@ def get_commit_info(repo: Repo):
         diff = repo.git.diff("4b825dc642cb6eb9a060e54bf8d69288fbee4904", commit.hexsha)
     else:
         diff = repo.git.diff(commit.parents[0].hexsha, commit.hexsha)
-    
+
     return commit.hexsha, diff
 
 
@@ -94,12 +95,14 @@ def load_sessions(lore_dir: Path, changed_files: List[str]) -> List[SessionData]
                     for f_name in changed_files:
                         if f_name in event_str:
                             touched = True
-                    
-                    events.append(SessionEvent(
-                        type=event_data.get("type", "unknown"),
-                        timestamp=event_data.get("timestamp", 0.0),
-                        data=event_data
-                    ))
+
+                    events.append(
+                        SessionEvent(
+                            type=event_data.get("type", "unknown"),
+                            timestamp=event_data.get("timestamp", 0.0),
+                            data=event_data,
+                        )
+                    )
                 except json.JSONDecodeError:
                     continue
 
@@ -112,7 +115,7 @@ def load_sessions(lore_dir: Path, changed_files: List[str]) -> List[SessionData]
                     prompt = prompt_data.get("prompt")
                 except json.JSONDecodeError:
                     pass
-            
+
             compact_file = session_path / "compact.json"
             compact_reasoning = None
             if compact_file.exists():
@@ -122,13 +125,15 @@ def load_sessions(lore_dir: Path, changed_files: List[str]) -> List[SessionData]
                 except json.JSONDecodeError:
                     pass
 
-            sessions.append(SessionData(
-                session_id=session_path.name,
-                prompt=prompt,
-                events=events,
-                compact_reasoning=compact_reasoning
-            ))
-            
+            sessions.append(
+                SessionData(
+                    session_id=session_path.name,
+                    prompt=prompt,
+                    events=events,
+                    compact_reasoning=compact_reasoning,
+                )
+            )
+
     return sessions
 
 

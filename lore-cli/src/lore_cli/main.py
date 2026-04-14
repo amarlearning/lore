@@ -95,7 +95,9 @@ def _install_claude_hooks(cwd: Path):
     # Basic hook registration as defined in architecture.md
     base_url = "http://localhost:7340/hooks"
     lore_hooks = {
-        "UserPromptSubmit": [{"hooks": [{"type": "http", "url": f"{base_url}/prompt"}]}],
+        "UserPromptSubmit": [
+            {"hooks": [{"type": "http", "url": f"{base_url}/prompt"}]}
+        ],
         "PostToolUse": [
             {
                 "matcher": ".*",
@@ -124,7 +126,9 @@ def _install_claude_hooks(cwd: Path):
         else:
             # Avoid duplicate registrations
             existing_urls = []
-            for config_item in cast(List[Dict[str, Any]], hooks_settings.get(event, [])):
+            for config_item in cast(
+                List[Dict[str, Any]], hooks_settings.get(event, [])
+            ):
                 hooks_list = config_item.get("hooks", [])
                 if isinstance(hooks_list, list):
                     for hook_item in hooks_list:
@@ -179,7 +183,7 @@ def commit():
 
     symbols = extract_symbols_from_diff(diff)
     files = get_changed_files(diff)
-    
+
     if not files:
         typer.echo("No files changed in the latest commit.")
         return
@@ -205,13 +209,13 @@ def commit():
     branch_name = repo.active_branch.name
     staging_dir = lore_dir / "staging" / branch_name
     staging_dir.mkdir(parents=True, exist_ok=True)
-    
+
     output_path = staging_dir / f"{commit_hash}.yaml"
     with open(output_path, "w") as f:
         yaml.dump(decision.model_dump(), f)
 
     typer.echo(f"Distilled decision record saved to: {output_path}")
-    
+
     # Cleanup temp/ (for V1, we clear all matched sessions)
     # Actually, we should only clear the sessions that were distilled.
     for session in sessions:
@@ -220,6 +224,7 @@ def commit():
         # But for safety, we might want to keep it until merge.
         # For V1, the rule is "temp/ is cleared per commit".
         import shutil
+
         shutil.rmtree(session_path)
         typer.echo(f"Cleared temp session: {session.session_id}")
 
@@ -258,7 +263,9 @@ def merge():
         count += 1
 
     if count > 0:
-        typer.echo(f"Successfully promoted {count} decision records to permanent store.")
+        typer.echo(
+            f"Successfully promoted {count} decision records to permanent store."
+        )
         # Cleanup the empty branch staging directory
         staging_dir.rmdir()
     else:

@@ -62,13 +62,17 @@ pip install -e ".[dev]"
 
 ## Build & Test
 
+**Always run pre-commit checks before pushing:**
 ```bash
-pytest                        # run all tests
-pytest tests/unit/            # unit tests only
-pytest tests/integration/     # integration tests (require git)
-mypy lore-core/src lore-cli/src lore-daemon/src --ignore-missing-imports # type checking
+./hooks/pre-commit     # or simply: git commit (auto-triggers)
+```
+
+**Manual CI pipeline (same as pre-commit):**
+```bash
 ruff check .                  # linting
 ruff format .                 # formatting
+mypy lore-core/src lore-cli/src lore-daemon/src --ignore-missing-imports # type checking
+export PYTHONPATH=$PYTHONPATH:$(pwd)/lore-core/src:$(pwd)/lore-cli:$(pwd)/lore-daemon/src && pytest --cov=lore_core --cov=lore_cli --cov=lore_daemon # tests with coverage
 ```
 
 ---

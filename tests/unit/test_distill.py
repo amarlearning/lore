@@ -1,5 +1,6 @@
 from lore_core.distill import extract_symbols_from_diff
 
+
 def test_extract_python_function_from_diff():
     diff = """--- a/src/app.py
 +++ b/src/app.py
@@ -13,6 +14,7 @@ def test_extract_python_function_from_diff():
     symbols = extract_symbols_from_diff(diff)
     assert "new_func" in symbols
 
+
 def test_extract_python_class_from_diff():
     diff = """--- a/src/models.py
 +++ b/src/models.py
@@ -22,6 +24,7 @@ def test_extract_python_class_from_diff():
  """
     symbols = extract_symbols_from_diff(diff)
     assert "NewModel" in symbols
+
 
 def test_extract_multiple_symbols():
     diff = """--- a/src/app.py

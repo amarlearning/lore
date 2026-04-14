@@ -1,0 +1,46 @@
+#!/bin/bash
+# Pre-commit hook for Lore
+# Runs the same checks as the CI pipeline to prevent breaking commits
+
+set -e
+
+echo "Running pre-commit checks..."
+
+# Get the actual directory of this script (resolve symlinks)
+SCRIPT_PATH="$(readlink -f "$0")"
+SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
+REPO_DIR="$(dirname "$SCRIPT_DIR")"
+
+cd "$REPO_DIR"
+
+# Set PYTHONPATH for tests
+export PYTHONPATH="${PYTHONPATH}:${REPO_DIR}/lore-core/src:${REPO_DIR}/lore-cli:${REPO_DIR}/lore-daemon/src"
+
+# Find the right binary directory - check .venv first, then system
+VENV_BIN=""
+if [ -d "$REPO_DIR/.venv/bin" ]; then
+    VENV_BIN="$REPO_DIR/.venv/bin"
+fi
+
+# Helper function to run a command with the correct PATH
+run_cmd() {
+    if [ -n "$VENV_BIN" ]; then
+        PATH="$VENV_BIN:$PATH" "$@"
+    else
+        "$@"
+    fi
+}
+
+echo "Running ruff check..."
+run_cmd ruff check .
+
+echo "Running ruff format..."
+run_cmd ruff format .
+
+echo "Running mypy type check..."
+run_cmd mypy lore-core/src lore-cli/src lore-daemon/src --ignore-missing-imports
+
+echo "Running pytest..."
+run_cmd pytest --cov=lore_core --cov=lore_cli --cov=lore_daemon
+
+echo "All pre-commit checks passed!"

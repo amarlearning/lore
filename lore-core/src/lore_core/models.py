@@ -1,16 +1,19 @@
 from typing import List, Optional, Dict
 from pydantic import BaseModel
 
+
 class SessionEvent(BaseModel):
     type: str
     timestamp: float
     data: Dict
+
 
 class SessionData(BaseModel):
     session_id: str
     prompt: Optional[str] = None
     events: List[SessionEvent] = []
     compact_reasoning: Optional[str] = None
+
 
 class DecisionRecord(BaseModel):
     commit_hash: str
@@ -20,6 +23,7 @@ class DecisionRecord(BaseModel):
     constraints: List[str]
     symbols: List[str]
     files: List[str]
+
 
 class DistillContext(BaseModel):
     commit_hash: str
