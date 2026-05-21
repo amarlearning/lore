@@ -69,9 +69,9 @@ rm $HOME/.local/bin/lore-daemon
 
 1.  **Start the daemon**: Run `lore start` to begin capturing reasoning.
 2.  **Initialize your project**: Run `lore init` in your project root. **That's it!** Everything is set up automatically:
-    - ✅ Creates the `.lore/` directory structure (temp/, staging/, decisions/)
-    - ✅ Installs Git Hooks (`post-commit` and `post-merge`) to automate distillation and promotion
-    - ✅ Registers Claude Code Hooks in `.claude/settings.json` to capture lifecycle events
+    - Creates the `.lore/` directory structure (temp/, staging/, decisions/)
+    - Installs Git Hooks (`post-commit` and `post-merge`) to automate distillation and promotion
+    - Registers Claude Code Hooks in `.claude/settings.json` to capture lifecycle events
 
 You don't need to do any manual configuration — `lore init` takes care of everything!
 
@@ -129,67 +129,97 @@ Lore is local-first. All reasoning and decision records are stored inside your r
 
 Lore is built as three independent packages that work together:
 
-```
-lore/
-├── lore-core/       # Core data models, storage logic, distillation utilities
-├── lore-cli/        # Command-line interface (user-facing commands)
-└── lore-daemon/     # HTTP server that listens to Claude Code hooks
-```
-
-### Three-Tier Storage Model
-
-Lore uses a three-tier storage system to ensure only high-quality, production-relevant reasoning becomes permanent knowledge:
-
-1. **`temp/`** (Raw Working Memory)
-   - Stores raw Claude Code session data as it happens
-   - Cleared automatically after each commit
-   - **Never treat as truth** — contains discarded experiments and dead ends
-
-2. **`staging/<branch>/`** (Distilled Records)
-   - Structured decision records distilled from `temp/`
-   - Contains only reasoning about code that survived the commit
-   - Cleared after merge to main
-   - **Never query as final** — still branch-specific
-
-3. **`decisions/`** (Permanent Knowledge)
-   - Production-grade decision records
-   - Only grows when branches merge to main
-   - Ghost reasoning filter ensures only decisions about surviving code are here
-   - **This is your institutional memory** — safe to rely on
-
-### Data Flow
-
-```
-Claude Code Session → temp/ (raw events)
-         ↓
-     git commit → distill → staging/ (branch-specific)
-         ↓
-     git merge → promote → decisions/ (permanent)
+```mermaid
+graph TB
+    User[User] -->|lore commands| CLI[lore-cli]
+    CLI -->|uses| Core[lore-core]
+    CLI -->|starts/stops| Daemon[lore-daemon]
+    Daemon -->|captures events| Claude[Claude Code]
+    Claude -->|reads decisions| Daemon
+    Daemon -->|stores raw data| Temp[(temp/)]
+    CLI -->|distills| Staging[(staging/)]
+    CLI -->|promotes| Decisions[(decisions/)]
+    
+    style Core fill:#e1f5ff
+    style CLI fill:#fff4e1
+    style Daemon fill:#f4e1ff
+    style Temp fill:#ffcccc
+    style Staging fill:#ffffcc
+    style Decisions fill:#ccffcc
 ```
 
----
+### Project Structure & Components
 
-## Project Structure & Components
-
-### lore-core
+#### lore-core
 The heart of Lore — contains all shared logic:
 - **Models**: Pydantic data models for `SessionData`, `DecisionRecord`, etc.
 - **Store**: Utilities for finding/writing to `.lore/`, loading sessions, finding decisions
 - **Distill**: Logic for extracting symbols from diffs and distilling reasoning
 - **Constraints**: Loading architectural constraints from AGENTS.md
 
-### lore-cli
+#### lore-cli
 User-facing command-line interface:
 - All user commands: `init`, `start`, `stop`, `commit`, `merge`, `status`, `log`, `show`, `query`, `constraints`
 - Git hook installation
 - Claude Code hook registration
 
-### lore-daemon
+#### lore-daemon
 Background HTTP server (port 7340):
 - Receives Claude Code lifecycle events via webhooks
 - Writes raw session data to `temp/`
 - Injects relevant decisions as context before tool use
 - Handles 5 hook types: `UserPromptSubmit`, `PostToolUse`, `PreCompact`, `Stop`, `PreToolUse`
+
+---
+
+## Three-Tier Storage Model & Data Flow
+
+Lore uses a three-tier storage system to ensure only high-quality, production-relevant reasoning becomes permanent knowledge:
+
+```mermaid
+sequenceDiagram
+    participant Claude as Claude Code
+    participant Daemon as lore-daemon
+    participant Temp as temp/
+    participant CLI as lore-cli
+    participant Staging as staging/
+    participant Decisions as decisions/
+
+    Claude->>Daemon: Session events
+    Daemon->>Temp: Write raw data
+    
+    Note over CLI,Temp: git commit
+    CLI->>Temp: Read raw sessions
+    CLI->>CLI: Distill reasoning
+    CLI->>Staging: Write decision records
+    
+    Note over CLI,Staging: git merge to main
+    CLI->>Staging: Read staged decisions
+    CLI->>Decisions: Promote to permanent store
+    
+    Claude->>Daemon: About to touch file
+    Daemon->>Decisions: Look up relevant decisions
+    Daemon->>Claude: Inject context
+```
+
+### Tier Details
+
+1. **`temp/`** (Raw Working Memory)
+   - Stores raw Claude Code session data as it happens
+   - Cleared automatically after each commit
+   - Never treat as truth — contains discarded experiments and dead ends
+
+2. **`staging/<branch>/`** (Distilled Records)
+   - Structured decision records distilled from `temp/`
+   - Contains only reasoning about code that survived the commit
+   - Cleared after merge to main
+   - Never query as final — still branch-specific
+
+3. **`decisions/`** (Permanent Knowledge)
+   - Production-grade decision records
+   - Only grows when branches merge to main
+   - Ghost reasoning filter ensures only decisions about surviving code are here
+   - This is your institutional memory — safe to rely on
 
 ---
 
