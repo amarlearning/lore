@@ -105,24 +105,204 @@ Lore is local-first. All reasoning and decision records are stored inside your r
 
 ---
 
-## What A Decision Looks Like
+## Technical Architecture
+
+Lore is built as three independent packages that work together:
 
 ```
-Decision a3f9c2
-────────────────────────────────────────────────
-Date:     2026-03-10
-Branch:   feature-auth
-Symbols:  checkInternalIP() in auth/middleware.js
+lore/
+├── lore-core/       # Core data models, storage logic, distillation utilities
+├── lore-cli/        # Command-line interface (user-facing commands)
+└── lore-daemon/     # HTTP server that listens to Claude Code hooks
+```
 
-WHY
-Skipped 2FA for internal IPs due to SSO compliance
-requirement confirmed by legal in ticket #234.
+### Three-Tier Storage Model
 
-ALTERNATIVES REJECTED
-- Enforce 2FA for all → broke internal deploy tooling
-- IP allowlist at firewall level → too ops-heavy
+Lore uses a three-tier storage system to ensure only high-quality, production-relevant reasoning becomes permanent knowledge:
 
-CONSTRAINTS — DO NOT VIOLATE WITHOUT REVIEW
-- Must not break internal deploy pipeline
-- Compliance review required before this block is removed
+1. **`temp/`** (Raw Working Memory)
+   - Stores raw Claude Code session data as it happens
+   - Cleared automatically after each commit
+   - **Never treat as truth** — contains discarded experiments and dead ends
+
+2. **`staging/<branch>/`** (Distilled Records)
+   - Structured decision records distilled from `temp/`
+   - Contains only reasoning about code that survived the commit
+   - Cleared after merge to main
+   - **Never query as final** — still branch-specific
+
+3. **`decisions/`** (Permanent Knowledge)
+   - Production-grade decision records
+   - Only grows when branches merge to main
+   - Ghost reasoning filter ensures only decisions about surviving code are here
+   - **This is your institutional memory** — safe to rely on
+
+### Data Flow
+
+```
+Claude Code Session → temp/ (raw events)
+         ↓
+     git commit → distill → staging/ (branch-specific)
+         ↓
+     git merge → promote → decisions/ (permanent)
+```
+
+---
+
+## Project Structure & Components
+
+### lore-core
+The heart of Lore — contains all shared logic:
+- **Models**: Pydantic data models for `SessionData`, `DecisionRecord`, etc.
+- **Store**: Utilities for finding/writing to `.lore/`, loading sessions, finding decisions
+- **Distill**: Logic for extracting symbols from diffs and distilling reasoning
+- **Constraints**: Loading architectural constraints from AGENTS.md
+
+### lore-cli
+User-facing command-line interface:
+- All user commands: `init`, `start`, `stop`, `commit`, `merge`, `status`, `log`, `show`, `query`, `constraints`
+- Git hook installation
+- Claude Code hook registration
+
+### lore-daemon
+Background HTTP server (port 7340):
+- Receives Claude Code lifecycle events via webhooks
+- Writes raw session data to `temp/`
+- Injects relevant decisions as context before tool use
+- Handles 5 hook types: `UserPromptSubmit`, `PostToolUse`, `PreCompact`, `Stop`, `PreToolUse`
+
+---
+
+## Data Formats
+
+### Decision Record (YAML)
+
+Decision records are stored as YAML for token efficiency and Claude-friendliness:
+
+```yaml
+commit_hash: a3f9c2d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0
+summary: Skip 2FA for internal IPs
+why: Skipped 2FA for internal IPs due to SSO compliance requirement confirmed by legal
+alternatives_rejected:
+  - Enforce 2FA for all → broke internal deploy tooling
+  - IP allowlist at firewall level → too ops-heavy
+constraints:
+  - Must not break internal deploy pipeline
+  - Compliance review required before this block is removed
+symbols:
+  - checkInternalIP
+files:
+  - auth/middleware.js
+```
+
+### Session Data in temp/
+
+Each session directory contains:
+- `prompt.json` - Initial user prompt
+- `tool_events.jsonl` - Stream of tool use events
+- `compact.json` - Full session state before context compaction
+- `stop.json` - Session termination timestamp
+
+---
+
+## Claude Code Hook Integration
+
+Lore integrates with Claude Code via 5 lifecycle hooks registered in `.claude/settings.json`:
+
+| Hook | Purpose | When It Fires |
+|------|---------|----------------|
+| `UserPromptSubmit` | Capture initial task intent | At session start |
+| `PostToolUse` | Record every file touch and tool call | After every tool use |
+| `PreCompact` | Capture full reasoning before context loss | Before Claude compacts its context |
+| `Stop` | Seal the session | When session ends |
+| `PreToolUse` | Inject relevant decisions | Before Claude reads/writes a file |
+
+**Proactive Context Injection**: Lore injects decisions as soon as Claude **reads** a file, not just when it edits. This ensures the agent knows critical constraints during planning.
+
+---
+
+## Tech Stack
+
+| Component | Technology | Rationale |
+|-----------|------------|-----------|
+| Language | Python 3.11+ | Excellent ecosystem for CLI tools and ML/LLM integration |
+| CLI Framework | Typer | Modern, type-safe, beautiful CLI output |
+| Web Server | FastAPI + Uvicorn | High-performance async server with automatic OpenAPI docs |
+| Data Validation | Pydantic 2.0 | Type-safe data models with excellent error messages |
+| Git Integration | GitPython | Robust git operations without shelling out |
+| Storage Format | YAML | 2-3x more token-efficient than Markdown for Claude |
+| Testing | pytest + pytest-cov | Industry-standard testing with coverage reporting |
+| Linting/Formatting | ruff | Blazing-fast linter and formatter in one |
+| Type Checking | mypy | Static type checking for robustness |
+
+---
+
+## Development & Contributing
+
+### Local Setup
+
+```bash
+# Clone the repo
+git clone https://github.com/amarlearning/lore.git
+cd lore
+
+# Create virtual environment
+python -m venv .venv
+source .venv/bin/activate
+
+# Install in development mode
+pip install -e "./lore-core[dev]"
+pip install -e "./lore-daemon[dev]"
+pip install -e "./lore-cli[dev]"
+```
+
+### Running Tests
+
+```bash
+# Run all tests with coverage
+export PYTHONPATH=$PYTHONPATH:$(pwd)/lore-core/src:$(pwd)/lore-cli:$(pwd)/lore-daemon/src
+pytest --cov=lore_core --cov=lore_cli --cov=lore_daemon
+
+# Run pre-commit checks (same as CI)
+./hooks/pre-commit
+```
+
+### Project Principles
+
+All contributions must follow:
+- **Clean Code**: Readability, meaningful names, small single-purpose functions
+- **TDD**: Write tests *before* implementation. Aim for >80% coverage.
+- **Functional Programming**: Prefer immutability, pure functions, Pydantic models
+- **Pragmatic Programming**: Build what's necessary, avoid over-engineering
+
+---
+
+## Security & Privacy
+
+Lore is designed with privacy as a first-class concern:
+
+- **100% Local**: All data stays on your machine in `.lore/`
+- **No Phone Home**: No data is sent to any external servers
+- **Your Code, Your Lore**: Decision records live in your repo, under your control
+- **No Secrets Stored**: Lore doesn't access or store API keys, credentials, or secrets
+- **Git-Compatible**: `.lore/` can be committed to git to share institutional memory with your team
+
+---
+
+## What A Decision Looks Like
+
+```yaml
+commit_hash: a3f9c2d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0
+summary: Skip 2FA for internal IPs
+why: Skipped 2FA for internal IPs due to SSO compliance requirement confirmed by legal in ticket #234.
+alternatives_rejected:
+  - Enforce 2FA for all → broke internal deploy tooling
+  - IP allowlist at firewall level → too ops-heavy
+constraints:
+  - Must not break internal deploy pipeline
+  - Compliance review required before this block is removed
+symbols:
+  - checkInternalIP
+files:
+  - auth/middleware.js
 ```
