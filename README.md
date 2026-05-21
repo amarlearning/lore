@@ -46,6 +46,23 @@ curl -fsSL https://raw.githubusercontent.com/amarlearning/lore/main/install.sh |
 
 Done. Everything automatic from that point.
 
+### Uninstall
+
+To uninstall Lore:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/amarlearning/lore/main/uninstall.sh | bash
+```
+
+Or manually remove the binaries:
+
+```bash
+rm $HOME/.local/bin/lore
+rm $HOME/.local/bin/lore-daemon
+```
+
+**Note:** Uninstalling does not remove `.lore` directories from your projects. To remove Lore data from a project, delete the `.lore` directory manually.
+
 ---
 
 ## Getting Started
