@@ -155,3 +155,37 @@ def find_decisions_for_file(lore_dir: Path, file_path: str) -> list[str]:
             matches.append(content)
 
     return matches
+
+
+def load_agents_constraints(cwd: str) -> List[str]:
+    """Load architectural constraints from AGENTS.md file in the project root."""
+    constraints: List[str] = []
+    current = Path(cwd).resolve()
+
+    for parent in [current] + list(current.parents):
+        agents_path = parent / "AGENTS.md"
+        if agents_path.exists():
+            try:
+                content = agents_path.read_text(encoding="utf-8")
+                in_constraints_section = False
+
+                for line in content.splitlines():
+                    if "Key Architectural Constraints" in line:
+                        in_constraints_section = True
+                        continue
+
+                    if in_constraints_section:
+                        if (
+                            line.strip().startswith("##")
+                            and "Architectural Constraints" not in line
+                        ):
+                            break
+                        if line.strip().startswith("**") or line.strip().startswith(
+                            "-"
+                        ):
+                            constraints.append(line.strip())
+            except Exception:
+                pass
+            break
+
+    return constraints

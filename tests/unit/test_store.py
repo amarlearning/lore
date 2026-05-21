@@ -153,3 +153,30 @@ def test_load_sessions(tmp_repo):
     # Test filtering
     sessions = load_sessions(lore_dir, ["other.py"])
     assert len(sessions) == 0
+
+
+def test_load_agents_constraints(tmp_repo):
+    # Create a sample AGENTS.md file
+    agents_content = """## Key Architectural Constraints
+
+**Three-tier storage — never skip a tier:**
+- `temp/` is raw, cleared per commit. Never treat it as truth.
+- `staging/` is distilled, cleared per merge. Never query it as final.
+- `decisions/` is permanent, grows only on merge to main.
+
+**Commit hash is the primary ID.** Decision files are named `<git-commit-hash>.md`. Never use Lore-specific IDs.
+"""
+    (tmp_repo / "AGENTS.md").write_text(agents_content)
+
+    from lore_core.store import load_agents_constraints
+
+    constraints = load_agents_constraints(str(tmp_repo))
+    assert len(constraints) > 0
+    assert "Three-tier storage" in " ".join(constraints)
+
+
+def test_load_agents_constraints_no_file(tmp_repo):
+    from lore_core.store import load_agents_constraints
+
+    constraints = load_agents_constraints(str(tmp_repo))
+    assert constraints == []

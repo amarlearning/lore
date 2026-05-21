@@ -18,6 +18,7 @@ from lore_core.store import (
     get_git_repo,
     init_lore_dir,
     load_sessions,
+    load_agents_constraints,
 )
 
 app = typer.Typer(help="lore — reasoning memory for AI-driven codebases")
@@ -183,6 +184,7 @@ def commit():
 
     symbols = extract_symbols_from_diff(diff)
     files = get_changed_files(diff)
+    constraints = load_agents_constraints(str(cwd))
 
     if not files:
         typer.echo("No files changed in the latest commit.")
@@ -204,6 +206,10 @@ def commit():
 
     typer.echo(f"Distilling reasoning for commit {commit_hash[:7]}...")
     decision = distill_sessions_to_decision(context, llm_client=None)
+
+    # Merge constraints from AGENTS.md with distilled constraints
+    if constraints:
+        decision.constraints = list(set(decision.constraints + constraints))
 
     # Save to staging/
     branch_name = repo.active_branch.name
@@ -275,4 +281,230 @@ def merge():
 @app.command()
 def status():
     """Show what's in temp/, staging/, and decisions/."""
-    typer.echo("lore status — not yet implemented")
+    cwd = Path.cwd()
+    lore_dir = find_lore_dir(str(cwd))
+    if not lore_dir:
+        typer.echo("Error: .lore directory not found. Run 'lore init' first.")
+        sys.exit(1)
+
+    temp_dir = lore_dir / "temp"
+    staging_dir = lore_dir / "staging"
+    decisions_dir = lore_dir / "decisions"
+
+    temp_sessions = list(temp_dir.iterdir()) if temp_dir.exists() else []
+    temp_count = len([d for d in temp_sessions if d.is_dir()])
+
+    staging_branches = list(staging_dir.iterdir()) if staging_dir.exists() else []
+    staging_branch_count = len([d for d in staging_branches if d.is_dir()])
+    staging_decision_count = 0
+    for branch_dir in staging_branches:
+        if branch_dir.is_dir():
+            staging_decision_count += len(list(branch_dir.glob("*.yaml")))
+
+    decision_files = (
+        list(decisions_dir.glob("*.yaml")) if decisions_dir.exists() else []
+    )
+    decision_count = len(decision_files)
+
+    typer.echo("Lore Status:")
+    typer.echo("-----------")
+    typer.echo(f"temp/: {temp_count} session{'s' if temp_count != 1 else ''}")
+    typer.echo(
+        f"staging/: {staging_branch_count} branch{'es' if staging_branch_count != 1 else ''}, {staging_decision_count} decision{'s' if staging_decision_count != 1 else ''}"
+    )
+    typer.echo(
+        f"decisions/: {decision_count} decision{'s' if decision_count != 1 else ''}"
+    )
+
+
+@app.command()
+def log():
+    """Show history of decision records in decisions/."""
+    cwd = Path.cwd()
+    lore_dir = find_lore_dir(str(cwd))
+    if not lore_dir:
+        typer.echo("Error: .lore directory not found. Run 'lore init' first.")
+        sys.exit(1)
+
+    decisions_dir = lore_dir / "decisions"
+    if not decisions_dir.exists():
+        typer.echo("No decision records found.")
+        return
+
+    decision_files = sorted(decisions_dir.glob("*.yaml"), reverse=True)
+
+    if not decision_files:
+        typer.echo("No decision records found.")
+        return
+
+    for yaml_file in decision_files:
+        try:
+            with open(yaml_file, "r") as f:
+                data = yaml.safe_load(f)
+
+            commit_hash = data.get("commit_hash", "")
+            summary = data.get("summary", "No summary")
+            files = data.get("files", [])
+
+            short_hash = commit_hash[:7] if commit_hash else "--------"
+            file_list = ", ".join(files[:2])
+            if len(files) > 2:
+                file_list += f", +{len(files) - 2} more"
+
+            typer.echo(f"{short_hash} — {summary}")
+            if file_list:
+                typer.echo(f"  {file_list}")
+        except Exception:
+            pass
+
+
+@app.command()
+def show(commit_hash: str):
+    """Show a specific decision record by commit hash (supports short hashes)."""
+    cwd = Path.cwd()
+    lore_dir = find_lore_dir(str(cwd))
+    if not lore_dir:
+        typer.echo("Error: .lore directory not found. Run 'lore init' first.")
+        sys.exit(1)
+
+    decisions_dir = lore_dir / "decisions"
+    if not decisions_dir.exists():
+        typer.echo(f"No decision record found for hash '{commit_hash}'.")
+        sys.exit(1)
+
+    matching_files = []
+    for file_path in decisions_dir.glob("*.yaml"):
+        if file_path.stem.startswith(commit_hash):
+            matching_files.append(file_path)
+
+    if len(matching_files) == 0:
+        typer.echo(f"No decision record found for hash '{commit_hash}'.")
+        sys.exit(1)
+    elif len(matching_files) > 1:
+        typer.echo(f"Multiple decision records found matching '{commit_hash}':")
+        for match_file in matching_files:
+            typer.echo(f"  - {match_file.stem}")
+        sys.exit(1)
+
+    decision_file = matching_files[0]
+    with open(str(decision_file), "r") as fp:
+        data = yaml.safe_load(fp)
+
+    typer.echo(f"Commit: {data.get('commit_hash', 'N/A')}")
+    typer.echo(f"Summary: {data.get('summary', 'N/A')}")
+    typer.echo()
+    typer.echo("Why:")
+    typer.echo(f"  {data.get('why', 'N/A')}")
+    typer.echo()
+
+    alternatives = data.get("alternatives_rejected", [])
+    if alternatives:
+        typer.echo("Alternatives Rejected:")
+        for alt in alternatives:
+            typer.echo(f"  - {alt}")
+        typer.echo()
+
+    constraints = data.get("constraints", [])
+    if constraints:
+        typer.echo("Constraints:")
+        for constraint in constraints:
+            typer.echo(f"  - {constraint}")
+        typer.echo()
+
+    symbols = data.get("symbols", [])
+    if symbols:
+        typer.echo("Symbols:")
+        for symbol in symbols:
+            typer.echo(f"  - {symbol}")
+        typer.echo()
+
+    files = data.get("files", [])
+    if files:
+        typer.echo("Files:")
+        for file in files:
+            typer.echo(f"  - {file}")
+
+
+@app.command()
+def query(q: str):
+    """Search decision records by keywords (future: semantic search)."""
+    cwd = Path.cwd()
+    lore_dir = find_lore_dir(str(cwd))
+    if not lore_dir:
+        typer.echo("Error: .lore directory not found. Run 'lore init' first.")
+        sys.exit(1)
+
+    decisions_dir = lore_dir / "decisions"
+    if not decisions_dir.exists():
+        typer.echo("No decision records found.")
+        return
+
+    decision_files = list(decisions_dir.glob("*.yaml"))
+    if not decision_files:
+        typer.echo("No decision records found.")
+        return
+
+    query_lower = q.lower()
+    matches = []
+
+    for file_path in decision_files:
+        try:
+            with open(str(file_path), "r") as f:
+                data = yaml.safe_load(f)
+
+            summary = data.get("summary", "").lower()
+            why = data.get("why", "").lower()
+            files_list = " ".join(data.get("files", [])).lower()
+            symbols_list = " ".join(data.get("symbols", [])).lower()
+
+            if (
+                query_lower in summary
+                or query_lower in why
+                or query_lower in files_list
+                or query_lower in symbols_list
+            ):
+                matches.append((file_path, data))
+        except Exception:
+            pass
+
+    if not matches:
+        typer.echo(f"No decision records found matching '{q}'.")
+        return
+
+    typer.echo(
+        f"Found {len(matches)} matching decision record{'' if len(matches) == 1 else 's'}:"
+    )
+    typer.echo()
+
+    for file_path, data in matches:
+        commit_hash = data.get("commit_hash", "")
+        summary = data.get("summary", "No summary")
+        files_list = data.get("files", [])
+
+        short_hash = commit_hash[:7] if commit_hash else "--------"
+        file_list = ", ".join(files_list[:2])
+        if len(files_list) > 2:
+            file_list += f", +{len(files_list) - 2} more"
+
+        typer.echo(f"{short_hash} — {summary}")
+        if file_list:
+            typer.echo(f"  {file_list}")
+        typer.echo()
+
+
+@app.command()
+def constraints():
+    """Show architectural constraints from AGENTS.md."""
+    cwd = Path.cwd()
+    constraints = load_agents_constraints(str(cwd))
+
+    if not constraints:
+        typer.echo(
+            "No AGENTS.md file found with Key Architectural Constraints section."
+        )
+        return
+
+    typer.echo("Lore Architectural Constraints:")
+    typer.echo("-------------------------------")
+    for constraint in constraints:
+        typer.echo(f"  {constraint}")
