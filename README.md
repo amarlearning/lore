@@ -68,9 +68,12 @@ rm $HOME/.local/bin/lore-daemon
 ## Getting Started
 
 1.  **Start the daemon**: Run `lore start` to begin capturing reasoning.
-2.  **Initialize your project**: Run `lore init` in your project root. This installs:
-    - **Git Hooks**: `post-commit` and `post-merge` hooks to automate distillation and promotion.
-    - **Claude Code Hooks**: Registers the daemon in `.claude/settings.json` to capture lifecycle events.
+2.  **Initialize your project**: Run `lore init` in your project root. **That's it!** Everything is set up automatically:
+    - ✅ Creates the `.lore/` directory structure (temp/, staging/, decisions/)
+    - ✅ Installs Git Hooks (`post-commit` and `post-merge`) to automate distillation and promotion
+    - ✅ Registers Claude Code Hooks in `.claude/settings.json` to capture lifecycle events
+
+You don't need to do any manual configuration — `lore init` takes care of everything!
 
 ---
 
