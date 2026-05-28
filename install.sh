@@ -39,12 +39,12 @@ COMMIT_DATE="unknown-date"
 
 RELEASE_JSON=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" || true)
 if [[ -n "$RELEASE_JSON" ]]; then
-    TARGET_COMMITISH=$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("target_commitish",""))' <<<"$RELEASE_JSON")
+    TARGET_COMMITISH=$(echo "$RELEASE_JSON" | grep -o '"target_commitish":"[^"]*"' | cut -d'"' -f4)
     if [[ -n "$TARGET_COMMITISH" ]]; then
         COMMIT_JSON=$(curl -fsSL "https://api.github.com/repos/$REPO/commits/$TARGET_COMMITISH" || true)
         if [[ -n "$COMMIT_JSON" ]]; then
-            SHORT_SHA=$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("sha","unknown")[:7])' <<<"$COMMIT_JSON")
-            COMMIT_DATE=$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("commit",{}).get("committer",{}).get("date","unknown-date")[:10])' <<<"$COMMIT_JSON")
+            SHORT_SHA=$(echo "$COMMIT_JSON" | grep -o '"sha":"[^"]*"' | head -1 | cut -d'"' -f4 | cut -c1-7)
+            COMMIT_DATE=$(echo "$COMMIT_JSON" | grep -o '"date":"[^"]*"' | head -1 | cut -d'"' -f4 | cut -c1-10)
         fi
     fi
 fi
