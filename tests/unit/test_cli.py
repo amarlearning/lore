@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 from typer.testing import CliRunner
+import lore_cli.main as cli_main
 from lore_cli.main import app
 from lore_core.models import SessionData, DecisionRecord
 
@@ -91,6 +92,57 @@ def test_start_command(mock_run):
     assert result.exit_code == 0
     assert "Starting lore-daemon on 127.0.0.1:8000" in result.output
     mock_run.assert_called_once()
+
+
+@patch("lore_cli.main._get_installed_lore_build_info")
+def test_version_command_outputs_short_sha_with_date(mock_build_info):
+    mock_build_info.return_value = ("abc1234", "2026-05-28")
+
+    result = runner.invoke(app, ["version"])
+
+    assert result.exit_code == 0
+    assert "lore abc1234 2026-05-28" in result.output
+
+
+@patch("lore_cli.main._get_installed_lore_build_info")
+def test_version_command_outputs_unknown_when_unavailable(mock_build_info):
+    mock_build_info.return_value = ("unknown", "unknown-date")
+
+    result = runner.invoke(app, ["version"])
+
+    assert result.exit_code == 0
+    assert "lore unknown unknown-date" in result.output
+
+
+def test_get_installed_lore_build_info_reads_metadata_from_binary_dir(
+    tmp_dir, monkeypatch
+):
+    bin_dir = tmp_dir / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "lore-build-info.json").write_text(
+        '{"short_sha":"89594a5","date":"2026-05-28"}'
+    )
+    monkeypatch.setattr(sys, "argv", [str(bin_dir / "lore")])
+    monkeypatch.setattr(
+        cli_main,
+        "BUILD_INFO_HOME_PATH",
+        tmp_dir / "does-not-exist" / "lore-build-info.json",
+    )
+
+    assert cli_main._get_installed_lore_build_info() == ("89594a5", "2026-05-28")
+
+
+def test_get_installed_lore_build_info_returns_unknown_without_metadata(
+    tmp_dir, monkeypatch
+):
+    monkeypatch.setattr(sys, "argv", [str(tmp_dir / "bin" / "lore")])
+    monkeypatch.setattr(
+        cli_main,
+        "BUILD_INFO_HOME_PATH",
+        tmp_dir / "share" / "lore" / "lore-build-info.json",
+    )
+
+    assert cli_main._get_installed_lore_build_info() == ("unknown", "unknown-date")
 
 
 def test_init_command_no_git(tmp_dir):

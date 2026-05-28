@@ -25,6 +25,8 @@ from lore_core.store import (
 
 DEFAULT_DAEMON_HOST = "127.0.0.1"
 DEFAULT_DAEMON_PORT = 7340
+BUILD_INFO_FILENAME = "lore-build-info.json"
+BUILD_INFO_HOME_PATH = Path.home() / ".local" / "share" / "lore" / BUILD_INFO_FILENAME
 
 app = typer.Typer(
     help="lore — reasoning memory for AI-driven codebases",
@@ -34,6 +36,41 @@ app = typer.Typer(
 
 def _daemon_url(host: str, port: int) -> str:
     return f"http://{host}:{port}"
+
+
+def _read_build_info_file(path: Path) -> tuple[str, str] | None:
+    """Read build metadata file and return short sha/date if valid."""
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+
+    short_sha = data.get("short_sha")
+    commit_date = data.get("date")
+    if isinstance(short_sha, str) and isinstance(commit_date, str):
+        return short_sha, commit_date
+    return None
+
+
+def _get_installed_lore_build_info() -> tuple[str, str]:
+    """
+    Resolve installed lore short commit sha and date from metadata files.
+    """
+    # Prefer install.sh metadata written next to the binary in ~/.local/bin.
+    argv_path = Path(sys.argv[0]).expanduser()
+    candidate_paths = [
+        argv_path.parent / BUILD_INFO_FILENAME,
+        BUILD_INFO_HOME_PATH,
+    ]
+
+    for path in candidate_paths:
+        build_info = _read_build_info_file(path)
+        if build_info is not None:
+            return build_info
+
+    return "unknown", "unknown-date"
 
 
 def _check_daemon(
@@ -89,6 +126,13 @@ def stop():
     error = result.stderr.strip() or result.stdout.strip() or "unknown error"
     typer.echo(f"Error stopping lore-daemon: {error}")
     sys.exit(result.returncode)
+
+
+@app.command()
+def version():
+    """Show installed lore short commit sha and date."""
+    short_sha, commit_date = _get_installed_lore_build_info()
+    typer.echo(f"lore {short_sha} {commit_date}")
 
 
 def _install_git_hooks(cwd: Path):
