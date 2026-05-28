@@ -4,6 +4,8 @@ import shutil
 import stat
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, cast
 
@@ -21,13 +23,39 @@ from lore_core.store import (
     load_agents_constraints,
 )
 
-app = typer.Typer(help="lore — reasoning memory for AI-driven codebases")
+DEFAULT_DAEMON_HOST = "127.0.0.1"
+DEFAULT_DAEMON_PORT = 7340
+
+app = typer.Typer(
+    help="lore — reasoning memory for AI-driven codebases",
+    no_args_is_help=True,
+)
+
+
+def _daemon_url(host: str, port: int) -> str:
+    return f"http://{host}:{port}"
+
+
+def _check_daemon(
+    host: str = DEFAULT_DAEMON_HOST,
+    port: int = DEFAULT_DAEMON_PORT,
+    timeout: float = 0.5,
+) -> bool:
+    """Return whether lore-daemon responds to its health endpoint."""
+    try:
+        with urllib.request.urlopen(
+            f"{_daemon_url(host, port)}/health",
+            timeout=timeout,
+        ) as response:
+            return response.status == 200
+    except (OSError, urllib.error.URLError):
+        return False
 
 
 @app.command()
 def start(
-    port: int = typer.Option(7340, help="Port to listen on"),
-    host: str = typer.Option("127.0.0.1", help="Host to bind to"),
+    port: int = typer.Option(DEFAULT_DAEMON_PORT, help="Port to listen on"),
+    host: str = typer.Option(DEFAULT_DAEMON_HOST, help="Host to bind to"),
 ):
     """Start the lore-daemon background process."""
     typer.echo(f"Starting lore-daemon on {host}:{port}...")
@@ -45,9 +73,22 @@ def start(
 def stop():
     """Stop the lore-daemon background process."""
     typer.echo("Stopping lore-daemon...")
-    # This is a placeholder for now, as the daemon doesn't have a formal stop mechanism yet
-    # beyond killing the process.
-    subprocess.run(["pkill", "-f", "lore-daemon"])
+    result = subprocess.run(
+        ["pkill", "-f", "lore-daemon"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        typer.echo("Stopped lore-daemon.")
+        return
+
+    if result.returncode == 1:
+        typer.echo("lore-daemon was not running.")
+        return
+
+    error = result.stderr.strip() or result.stdout.strip() or "unknown error"
+    typer.echo(f"Error stopping lore-daemon: {error}")
+    sys.exit(result.returncode)
 
 
 def _install_git_hooks(cwd: Path):
@@ -70,6 +111,7 @@ def _install_git_hooks(cwd: Path):
         if hook_path.exists():
             content = hook_path.read_text()
             if "lore" in content:
+                typer.echo(f"Git hook already installed: {hook_name}")
                 continue
             hook_content = content + "\n" + hook_content
 
@@ -119,11 +161,13 @@ def _install_claude_hooks(cwd: Path):
         settings["hooks"] = {}
 
     hooks_settings = cast(Dict[str, Any], settings["hooks"])
+    changed = False
 
     for event, configs_any in lore_hooks.items():
         configs = cast(List[Dict[str, Any]], configs_any)
         if event not in hooks_settings:
             hooks_settings[event] = configs
+            changed = True
         else:
             # Avoid duplicate registrations
             existing_urls = []
@@ -144,22 +188,32 @@ def _install_claude_hooks(cwd: Path):
                 if new_hooks:
                     config["hooks"] = new_hooks
                     hooks_settings[event].append(config)
+                    changed = True
 
-    settings_path.write_text(json.dumps(settings, indent=2))
-    typer.echo("Registered Claude Code hooks in .claude/settings.json")
+    if changed or not settings_path.exists():
+        settings_path.write_text(json.dumps(settings, indent=2))
+        typer.echo("Registered Claude Code hooks in .claude/settings.json")
+    else:
+        typer.echo("Claude Code hooks already registered in .claude/settings.json")
 
 
 @app.command()
 def init():
     """Set up .lore/ in the current repo and install git + Claude Code hooks."""
     cwd = Path.cwd()
+    lore_dir_path = cwd / ".lore"
+    was_initialized = lore_dir_path.is_dir()
     lore_dir = init_lore_dir(str(cwd))
-    typer.echo(f"Initialized {lore_dir}")
+    if was_initialized:
+        typer.echo(f"Initialized: Verified .lore/ at {lore_dir}")
+    else:
+        typer.echo(f"Initialized: Created .lore/ at {lore_dir}")
 
     _install_git_hooks(cwd)
     _install_claude_hooks(cwd)
 
-    typer.echo("\nLore is ready! Make sure 'lore start' is running.")
+    typer.echo("\nLore is ready.")
+    typer.echo("Next: run 'lore start' in a separate terminal.")
 
 
 @app.command()
@@ -279,13 +333,28 @@ def merge():
 
 
 @app.command()
-def status():
-    """Show what's in temp/, staging/, and decisions/."""
+def status(
+    port: int = typer.Option(DEFAULT_DAEMON_PORT, help="Daemon port to check"),
+    host: str = typer.Option(DEFAULT_DAEMON_HOST, help="Daemon host to check"),
+):
+    """Show daemon health and what's in temp/, staging/, and decisions/."""
     cwd = Path.cwd()
     lore_dir = find_lore_dir(str(cwd))
+
+    daemon_running = _check_daemon(host=host, port=port)
+
+    typer.echo("Lore Status:")
+    typer.echo("-----------")
+    if daemon_running:
+        typer.echo(f"Daemon: running at {_daemon_url(host, port)}")
+    else:
+        typer.echo(f"Daemon: not running at {_daemon_url(host, port)}")
+        typer.echo("        Start it with 'lore start'.")
+
     if not lore_dir:
-        typer.echo("Error: .lore directory not found. Run 'lore init' first.")
-        sys.exit(1)
+        typer.echo("Project: not initialized (.lore directory not found)")
+        typer.echo("         Run 'lore init' from your repository root.")
+        return
 
     temp_dir = lore_dir / "temp"
     staging_dir = lore_dir / "staging"
@@ -306,8 +375,7 @@ def status():
     )
     decision_count = len(decision_files)
 
-    typer.echo("Lore Status:")
-    typer.echo("-----------")
+    typer.echo(f"Project: initialized at {lore_dir}")
     typer.echo(f"temp/: {temp_count} session{'s' if temp_count != 1 else ''}")
     typer.echo(
         f"staging/: {staging_branch_count} branch{'es' if staging_branch_count != 1 else ''}, {staging_decision_count} decision{'s' if staging_decision_count != 1 else ''}"
@@ -508,3 +576,7 @@ def constraints():
     typer.echo("-------------------------------")
     for constraint in constraints:
         typer.echo(f"  {constraint}")
+
+
+if __name__ == "__main__":
+    app()

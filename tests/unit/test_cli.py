@@ -1,6 +1,9 @@
 import pytest
 import os
 import tempfile
+import runpy
+import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 from typer.testing import CliRunner
@@ -8,6 +11,20 @@ from lore_cli.main import app
 from lore_core.models import SessionData, DecisionRecord
 
 runner = CliRunner()
+
+
+def test_module_help_outputs_commands(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["python -m lore_cli.main", "--help"])
+
+    with pytest.warns(RuntimeWarning, match="found in sys.modules"):
+        with pytest.raises(SystemExit) as exc_info:
+            runpy.run_module("lore_cli.main", run_name="__main__")
+
+    assert exc_info.value.code == 0
+    output = capsys.readouterr().out
+    assert "Usage:" in output
+    assert "Commands" in output
+    assert "status" in output
 
 
 @pytest.fixture
@@ -27,14 +44,45 @@ def test_init_command(tmp_dir):
     assert (tmp_dir / ".lore").is_dir()
     assert (tmp_dir / ".git/hooks/post-commit").exists()
     assert (tmp_dir / ".claude/settings.json").exists()
+    assert "Created .lore/" in result.output
+    assert "Installed git hook: post-commit" in result.output
+    assert "Registered Claude Code hooks" in result.output
+
+
+def test_init_command_second_run_reports_unchanged(tmp_dir):
+    os.chdir(tmp_dir)
+    (tmp_dir / ".git").mkdir()
+
+    first_result = runner.invoke(app, ["init"])
+    assert first_result.exit_code == 0
+
+    second_result = runner.invoke(app, ["init"])
+    assert second_result.exit_code == 0
+    assert "Verified .lore/" in second_result.output
+    assert "Git hook already installed: post-commit" in second_result.output
+    assert "Claude Code hooks already registered" in second_result.output
 
 
 @patch("subprocess.run")
 def test_stop_command(mock_run):
+    mock_run.return_value = subprocess.CompletedProcess(
+        args=["pkill", "-f", "lore-daemon"], returncode=0
+    )
     result = runner.invoke(app, ["stop"])
     assert result.exit_code == 0
     assert "Stopping lore-daemon" in result.output
+    assert "Stopped lore-daemon" in result.output
     mock_run.assert_called_once()
+
+
+@patch("subprocess.run")
+def test_stop_command_when_daemon_not_running(mock_run):
+    mock_run.return_value = subprocess.CompletedProcess(
+        args=["pkill", "-f", "lore-daemon"], returncode=1
+    )
+    result = runner.invoke(app, ["stop"])
+    assert result.exit_code == 0
+    assert "lore-daemon was not running" in result.output
 
 
 @patch("subprocess.run")
@@ -129,9 +177,14 @@ def test_merge_command(mock_repo, mock_find, tmp_dir):
 
 def test_status_command_no_lore(tmp_dir):
     os.chdir(tmp_dir)
-    result = runner.invoke(app, ["status"])
-    assert result.exit_code != 0
-    assert "Error: .lore directory not found" in result.output
+    with patch("lore_cli.main._check_daemon") as mock_check:
+        mock_check.return_value = False
+        result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 0
+    assert "Daemon: not running" in result.output
+    assert "Project: not initialized" in result.output
+    assert "Run 'lore init'" in result.output
 
 
 @patch("lore_cli.main.find_lore_dir")
@@ -144,8 +197,12 @@ def test_status_command_empty(mock_find, tmp_dir):
     (lore_dir / "decisions").mkdir()
     mock_find.return_value = lore_dir
 
-    result = runner.invoke(app, ["status"])
+    with patch("lore_cli.main._check_daemon") as mock_check:
+        mock_check.return_value = True
+        result = runner.invoke(app, ["status"])
+
     assert result.exit_code == 0
+    assert "Daemon: running" in result.output
     assert "temp/" in result.output
     assert "staging/" in result.output
     assert "decisions/" in result.output
